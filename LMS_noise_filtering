@@ -1,0 +1,96 @@
+`timescale 1ns / 1ps
+
+module LMS_NoiseCanceller #(
+    parameter N = 8,      // Bit width of input signal
+    parameter MU = 4      // Step size for LMS adaptation
+)(
+    input wire clk,
+    input wire rst,
+    input wire signed [N-1:0] noisy_signal,
+    input wire signed [N-1:0] reference_noise,
+    output reg signed [N-1:0] clean_signal
+);
+
+    reg signed [N-1:0] filter_coeff;
+    reg signed [N-1:0] estimated_noise;
+    reg signed [N-1:0] error_signal;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            filter_coeff <= 0;
+            estimated_noise <= 0;
+            error_signal <= 0;
+            clean_signal <= 0;
+        end else begin
+            // Estimate signal noise using adaptive filter
+            estimated_noise <= (filter_coeff * reference_noise) >>> 4;
+
+            // Compute error (desired signal - estimated noise)
+            error_signal <= noisy_signal - estimated_noise;
+
+            // Update filter coefficients
+            filter_coeff <= filter_coeff + ((MU * error_signal * reference_noise) >>> 4);
+
+            // Ensure clean signal is updated properly
+            clean_signal <= error_signal;
+        end
+    end
+
+endmodule
+
+// This is testbench code
+`timescale 1ns / 1ps
+
+module LMS_NoiseCanceller_tb();
+
+    parameter N = 8;
+    reg clk, rst;
+    reg signed [N-1:0] noisy_signal;
+    reg signed [N-1:0] reference_noise;
+    wire signed [N-1:0] clean_signal;
+
+    // Instantiate the LMS Noise Canceller module
+    LMS_NoiseCanceller #(.N(N), .MU(4)) uut (
+        .clk(clk),
+        .rst(rst),
+        .noisy_signal(noisy_signal),
+        .reference_noise(reference_noise),
+        .clean_signal(clean_signal)
+    );
+
+    // Generate Clock Signal
+    always #5 clk = ~clk;
+
+    initial begin
+        clk = 0;
+        rst = 1;
+        noisy_signal = 0;
+        reference_noise = 0;
+
+        // Reset system
+        #10 rst = 0;
+
+        // Noise Samples
+        #10 noisy_signal = 8'sd52; reference_noise = 8'sd2;
+        #10 noisy_signal = 8'sd21; reference_noise = 8'sd1;
+        #10 noisy_signal = 8'sd42; reference_noise = 8'sd74;
+        #10 noisy_signal = 8'sd11; reference_noise = 8'sd105;
+        #10 noisy_signal = 8'sd37; reference_noise = 8'sd7;
+        #10 noisy_signal = 8'sd31; reference_noise = 8'sd1;
+        #10 noisy_signal = 8'sd35; reference_noise = 8'sd35;
+
+        #200 $finish;
+    end
+
+    integer f;
+    initial begin
+        f = $fopen("clean_signal.txt", "w");
+        always @(posedge clk) $fwrite(f, "%d\n", clean_signal);
+    end
+
+    initial begin
+        $monitor("Time=%0t | Noisy=%d | Ref Noise=%d | Clean=%d", 
+                  $time, noisy_signal, reference_noise, clean_signal);
+    end
+
+endmodule
